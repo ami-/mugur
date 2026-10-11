@@ -1,5 +1,7 @@
 package main
+import "core:io"
 import "core:mem"
+import "core:strings"
 import "core:unicode/utf8"
 
 Pos :: int
@@ -104,6 +106,30 @@ remove :: proc(gb: ^Gap_Buffer, pos: Pos, count: int) {
 	gb.end = min(gb.end + count, len(gb.buf))
 }
 
+load_text :: proc {
+	load_string,
+	load_slice,
+}
+
+load_string :: proc(gb: ^Gap_Buffer, str: string) {
+	load_slice(gb, transmute([]u8)str)
+}
+
+load_slice :: proc(gb: ^Gap_Buffer, bytes: []byte) {
+	//before:  [old text....|------gap------|...more old]
+	//after:   [-------------gap------------|new text...]
+
+	initial_gap :: 64
+	if len(gb.buf) < len(bytes) + initial_gap {
+		new_buf := make([]u8, len(bytes) + max(initial_gap, len(bytes)), gb.allocator)
+		delete(gb.buf, gb.allocator)
+		gb.buf = new_buf
+	}
+	gb.start = 0
+	gb.end = len(gb.buf) - len(bytes)
+	copy(gb.buf[gb.end:], bytes)
+}
+
 as_string_parts :: proc(gb: ^Gap_Buffer) -> (left: string, right: string) {
 	left = string(gb.buf[:gb.start])
 	right = string(gb.buf[gb.end:])
@@ -112,6 +138,11 @@ as_string_parts :: proc(gb: ^Gap_Buffer) -> (left: string, right: string) {
 
 text_len :: proc(gb: ^Gap_Buffer) -> int {
 	return len(gb.buf) - (gb.end - gb.start)
+}
+
+as_text :: proc(gb: ^Gap_Buffer, allocator := context.temp_allocator) -> string {
+	l, r := as_string_parts(gb)
+	return strings.concatenate({l, r}, allocator)
 }
 
 byte_at :: proc(gb: ^Gap_Buffer, pos: Pos) -> u8 {
@@ -200,4 +231,12 @@ cursor_down :: proc(gb: ^Gap_Buffer) {
 	col := runes_between(gb, line_start(gb, gb.start), gb.start)
 	next_start := end + 1
 	shift_gap_to(gb, skip_runes(gb, next_start, col, line_end(gb, next_start)))
+}
+
+@(require_results)
+write_to :: proc(gb: ^Gap_Buffer, w: io.Writer) -> io.Error {
+	l, r := as_string_parts(gb)
+	io.write_string(w, l) or_return
+	io.write_string(w, r) or_return
+	return nil
 }

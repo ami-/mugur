@@ -1,5 +1,6 @@
 package main
 import "core:fmt"
+import "core:strings"
 import "core:testing"
 
 @(private = "file")
@@ -247,4 +248,38 @@ test_cursor_up_down :: proc(t: ^testing.T) {
 	expect_parts(t, &gb, "héllo\nhi\nwo", "rld")
 	cursor_down(&gb) // last line: nothing happens
 	expect_parts(t, &gb, "héllo\nhi\nwo", "rld")
+}
+
+@(test)
+test_load_text :: proc(t: ^testing.T) {
+	gb := make_gap_buffer(4) // smaller than the text, so load_text has to grow
+	defer destroy_gap_buffer(&gb)
+
+	file: string : "hello\nworld\nhello\nhello world\nhello world\nhello world\nhello world\nhello world"
+
+	insert(&gb, 0, "old")
+	load_text(&gb, file)
+
+	expect_parts(t, &gb, "", file)
+	testing.expect_value(t, gb.start, 0)
+
+	load_text(&gb, nil)
+	expect_parts(t, &gb, "", "")
+}
+
+
+@(test)
+test_write_to :: proc(t: ^testing.T) {
+	sb := strings.builder_make_none()
+	defer strings.builder_destroy(&sb)
+
+	gb := make_gap_buffer(4)
+	defer destroy_gap_buffer(&gb)
+
+	file: string : "some content\n on multiple\nlines"
+	load_text(&gb, file)
+
+	testing.expect_value(t, write_to(&gb, strings.to_writer(&sb)), nil)
+	testing.expect_value(t, strings.to_string(sb), file)
+
 }

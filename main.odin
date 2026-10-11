@@ -9,7 +9,6 @@ import "core:sync"
 import "core:terminal/ansi"
 
 
-FILE :: "abc\nline"
 STATUS_LINE :: 1
 
 Terminal :: struct {
@@ -75,6 +74,8 @@ main :: proc() {
 	fmt.print(ansi.CSI + ansi.DECASB_ENTER)
 
 	t := make_terminal()
+	load_text(&t.buf, FILE)
+
 	view(&t)
 
 	buf: [64]byte
@@ -151,25 +152,45 @@ update :: proc(t: ^Terminal, ev: Event) {
 }
 
 view :: proc(t: ^Terminal) {
-	//erase_in_display(ERASE_ALL)
 	b := &t.screen_buffer
 	strings.builder_reset(b)
 
-	// clear screen, cursor to top-left
-	clear_screen(b)
-	move_to(b, 1, 1)
-
 	l, r := as_string_parts(&t.buf)
-	fmt.sbprint(b, l, r, sep = "") // draw the whole text
+	text := as_text(&t.buf)
+	defer free_all(context.temp_allocator)
 
 	// cursor location
 	row := strings.count(l, "\n")
 	col := strings.rune_count(l[strings.last_index_byte(l, '\n') + 1:])
 
+	scroll(t, row)
+
+	rows := t.dims.x
+	i := 0
+	for line in strings.split_lines_iterator(&text) {
+		defer i += 1
+		if i < t.line_offset {
+			continue
+		}
+		if i >= t.line_offset + rows {
+			break
+		}
+		move_to(b, i - t.line_offset + 1, 1)
+		fmt.sbprint(b, line) // draw the line text
+		fmt.sbprint(b, ansi.CSI + ansi.EL) //delete rest of line
+	}
+	//clear rest of screen
+	for ; i < t.line_offset + rows; i += 1 {
+		move_to(b, i - t.line_offset + 1, 1)
+		fmt.sbprint(b, "~")
+		fmt.sbprint(b, ansi.CSI + ansi.EL) //delete rest of line
+	}
+
+
 	draw_status(t, row, col)
 
 	//show cursor in new location
-	move_to(b, row + 1, col + 1) // terminal rows/cols start at 1
+	move_to(b, row - t.line_offset + 1, col + 1) // terminal rows/cols start at 1
 
 	fmt.print(strings.to_string(b^))
 }
@@ -193,3 +214,65 @@ draw_status :: proc(t: ^Terminal, cursor_row, cursor_col: int) {
 	strings.write_string(b, right)
 	reset_style(b)
 }
+
+scroll :: proc(t: ^Terminal, cursor_row: int) {
+	rows := t.dims.x
+	if cursor_row < t.line_offset {
+		t.line_offset = cursor_row
+	}
+	if cursor_row >= t.line_offset + rows {
+		t.line_offset = cursor_row - rows + 1
+	}
+}
+
+
+FILE :: `1. Line one
+2. Line two
+3. Line three
+4. Line four
+5. Line five
+6. Line six
+7. Line seven
+8. Line eight
+9. Line nine
+10. Line ten
+11. Line eleven
+12. Line twelve
+13. Line thirteen
+14. Line fourteen
+15. Line fifteen
+16. Line sixteen
+17. Line seventeen
+18. Line eighteen
+19. Line nineteen
+20. Line twenty
+21. Line twenty-one
+22. Line twenty-two
+23. Line twenty-three
+24. Line twenty-four
+25. Line twenty-five
+26. Line twenty-six
+27. Line twenty-seven
+28. Line twenty-eight
+29. Line twenty-nine
+30. Line thirty
+31. Line thirty-one
+32. Line thirty-two
+33. Line thirty-three
+34. Line thirty-four
+35. Line thirty-five
+36. Line thirty-six
+37. Line thirty-seven
+38. Line thirty-eight
+39. Line thirty-nine
+40. Line forty
+41. Line forty-one
+42. Line forty-two
+43. Line forty-three
+44. Line forty-four
+45. Line forty-five
+46. Line forty-six
+47. Line forty-seven
+48. Line forty-eight
+49. Line forty-nine
+50. Line fifty`
