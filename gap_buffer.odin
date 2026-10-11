@@ -130,6 +130,7 @@ load_slice :: proc(gb: ^Gap_Buffer, bytes: []byte) {
 	copy(gb.buf[gb.end:], bytes)
 }
 
+@(private = "package")
 as_string_parts :: proc(gb: ^Gap_Buffer) -> (left: string, right: string) {
 	left = string(gb.buf[:gb.start])
 	right = string(gb.buf[gb.end:])
@@ -231,6 +232,13 @@ cursor_down :: proc(gb: ^Gap_Buffer) {
 	col := runes_between(gb, line_start(gb, gb.start), gb.start)
 	next_start := end + 1
 	shift_gap_to(gb, skip_runes(gb, next_start, col, line_end(gb, next_start)))
+}
+
+cursor_line_col :: proc(gb: ^Gap_Buffer) -> (line, col: int) {
+	l := string(gb.buf[:gb.start])
+	line = strings.count(l, "\n")
+	col = strings.rune_count(l[strings.last_index_byte(l, '\n') + 1:])
+	return
 }
 
 @(require_results)

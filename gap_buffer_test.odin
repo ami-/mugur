@@ -21,6 +21,19 @@ expect_parts :: proc(
 	testing.expect_value(t, r, want_r, loc)
 }
 
+@(private = "file")
+expect_cursor :: proc(
+	t: ^testing.T,
+	gb: ^Gap_Buffer,
+	want_line, want_col: int,
+	loc := #caller_location,
+) {
+	line, col := cursor_line_col(gb)
+	testing.expect_value(t, line, want_line, loc)
+	testing.expect_value(t, col, want_col, loc)
+}
+
+
 @(test)
 test_empty :: proc(t: ^testing.T) {
 	gb := make_gap_buffer(16)
@@ -282,4 +295,38 @@ test_write_to :: proc(t: ^testing.T) {
 	testing.expect_value(t, write_to(&gb, strings.to_writer(&sb)), nil)
 	testing.expect_value(t, strings.to_string(sb), file)
 
+}
+
+
+@(test)
+test_cursor_line_col :: proc(t: ^testing.T) {
+	Case :: struct {
+		input:     string,
+		line, col: int,
+	}
+
+	gb := make_gap_buffer(16)
+	defer destroy_gap_buffer(&gb)
+
+	cases := []Case {
+		{"", 0, 0},
+		{input = "abc", line = 0, col = 3},
+		{"abc\n", 1, 0},
+		{"ab\ncd\nef", 2, 2},
+		{"héllo", 0, 5}, // é is 2 bytes
+		{"a\n世界", 1, 2}, //世界 > 3 bytes
+	}
+	for c in cases {
+		insert(&gb, 0, c.input)
+		expect_cursor(t, &gb, c.line, c.col)
+		remove(&gb, 0, len(c.input))
+	}
+	load_text(&gb, "ab\ncd")
+	expect_cursor(t, &gb, 0, 0)
+	remove(&gb, 0, len("ab\ncd"))
+
+	insert(&gb, 0, "héllo\nhi")
+	expect_cursor(t, &gb, 1, 2)
+	cursor_up(&gb)
+	expect_cursor(t, &gb, 0, 2)
 }

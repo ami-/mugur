@@ -17,8 +17,9 @@ Terminal :: struct {
 	//cursor position
 	render_cursor: [2]int,
 
-	//first line in buffer
+	//scroll position
 	line_offset:   int,
+	col_offset:    int,
 	buf:           Gap_Buffer,
 	screen_buffer: strings.Builder,
 	status_left:   string,
@@ -122,8 +123,7 @@ main :: proc() {
 	//revert alternate buffer screen
 	fmt.print(ansi.CSI + ansi.DECASB_EXIT)
 
-	l, r := as_string_parts(&t.buf)
-	fmt.println(l, r, sep = "")
+	_ = write_to(&t.buf, os.to_writer(os.stdout))
 }
 update :: proc(t: ^Terminal, ev: Event) {
 	gb := &t.buf
@@ -155,17 +155,16 @@ view :: proc(t: ^Terminal) {
 	b := &t.screen_buffer
 	strings.builder_reset(b)
 
-	l, r := as_string_parts(&t.buf)
 	text := as_text(&t.buf)
 	defer free_all(context.temp_allocator)
 
 	// cursor location
-	row := strings.count(l, "\n")
-	col := strings.rune_count(l[strings.last_index_byte(l, '\n') + 1:])
+	row, col := cursor_line_col(&t.buf)
 
-	scroll(t, row)
+	scroll(t, row, col)
 
 	rows := t.dims.x
+	cols := t.dims.y
 	i := 0
 	for line in strings.split_lines_iterator(&text) {
 		defer i += 1
@@ -176,7 +175,20 @@ view :: proc(t: ^Terminal) {
 			break
 		}
 		move_to(b, i - t.line_offset + 1, 1)
-		fmt.sbprint(b, line) // draw the line text
+
+		rc := 0
+		lstart, lend := len(line), len(line)
+		for _, idx in line {
+			if rc == t.col_offset {
+				lstart = idx
+			}
+			if rc == t.col_offset + cols {
+				lend = idx
+			}
+			rc += 1
+		}
+		fmt.sbprint(b, line[lstart:lend]) // draw the line text
+
 		fmt.sbprint(b, ansi.CSI + ansi.EL) //delete rest of line
 	}
 	//clear rest of screen
@@ -190,7 +202,8 @@ view :: proc(t: ^Terminal) {
 	draw_status(t, row, col)
 
 	//show cursor in new location
-	move_to(b, row - t.line_offset + 1, col + 1) // terminal rows/cols start at 1
+	screen_row, screen_col := screen_pos(t, row, col)
+	move_to(b, screen_row, screen_col)
 
 	fmt.print(strings.to_string(b^))
 }
@@ -215,14 +228,27 @@ draw_status :: proc(t: ^Terminal, cursor_row, cursor_col: int) {
 	reset_style(b)
 }
 
-scroll :: proc(t: ^Terminal, cursor_row: int) {
+scroll :: proc(t: ^Terminal, cursor_row, cursor_col: int) {
 	rows := t.dims.x
+	cols := t.dims.y
 	if cursor_row < t.line_offset {
 		t.line_offset = cursor_row
 	}
 	if cursor_row >= t.line_offset + rows {
 		t.line_offset = cursor_row - rows + 1
 	}
+	if cursor_col < t.col_offset {
+		t.col_offset = max(0, cursor_col - cols / 2)
+	}
+	if cursor_col >= t.col_offset + cols {
+		t.col_offset = cursor_col - cols + 1
+	}
+}
+
+// text position (0-based line and rune column) to terminal position (1-based),
+// taking the scroll offsets into account
+screen_pos :: proc(t: ^Terminal, row, col: int) -> (screen_row, screen_col: int) {
+	return row - t.line_offset + 1, col - t.col_offset + 1
 }
 
 
