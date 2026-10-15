@@ -250,17 +250,20 @@ test_cursor_up_down :: proc(t: ^testing.T) {
 
 	insert(&gb, 0, "héllo\nhi\nworld")
 	// cursor is at the end: after "world"
-	cursor_up(&gb) // "hi" is shorter: stop at its end
+	cursor_up(&gb, 5) // "hi" is shorter: stop at its end
 	expect_parts(t, &gb, "héllo\nhi", "\nworld")
-	cursor_up(&gb) // column 2 on the first line, after "hé"
+	cursor_up(&gb, 5) // want column 5 on the first line
+	expect_parts(t, &gb, "héllo", "\nhi\nworld")
+	cursor_up(&gb, 5) // first line: nothing happens
+	expect_parts(t, &gb, "héllo", "\nhi\nworld")
+	cursor_down(&gb, 5)
+	cursor_down(&gb, 5)
+	expect_parts(t, &gb, "héllo\nhi\nworld", "")
+	cursor_down(&gb, 5) // last line: nothing happens
+	expect_parts(t, &gb, "héllo\nhi\nworld", "")
+	cursor_up(&gb, 2)
+	cursor_up(&gb, 2)
 	expect_parts(t, &gb, "hé", "llo\nhi\nworld")
-	cursor_up(&gb) // first line: nothing happens
-	expect_parts(t, &gb, "hé", "llo\nhi\nworld")
-	cursor_down(&gb)
-	cursor_down(&gb)
-	expect_parts(t, &gb, "héllo\nhi\nwo", "rld")
-	cursor_down(&gb) // last line: nothing happens
-	expect_parts(t, &gb, "héllo\nhi\nwo", "rld")
 }
 
 @(test)
@@ -327,6 +330,6 @@ test_cursor_line_col :: proc(t: ^testing.T) {
 
 	insert(&gb, 0, "héllo\nhi")
 	expect_cursor(t, &gb, 1, 2)
-	cursor_up(&gb)
+	cursor_up(&gb, 2)
 	expect_cursor(t, &gb, 0, 2)
 }

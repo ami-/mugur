@@ -214,22 +214,20 @@ skip_runes :: proc(gb: ^Gap_Buffer, from: Pos, n: int, limit: Pos) -> Pos {
 	return p
 }
 
-cursor_up :: proc(gb: ^Gap_Buffer) {
+cursor_up :: proc(gb: ^Gap_Buffer, col: int) {
 	start := line_start(gb, gb.start)
 	if start == 0 {
 		return // already on the first line
 	}
-	col := runes_between(gb, start, gb.start)
 	prev_start := line_start(gb, start - 1)
 	shift_gap_to(gb, skip_runes(gb, prev_start, col, start - 1))
 }
 
-cursor_down :: proc(gb: ^Gap_Buffer) {
+cursor_down :: proc(gb: ^Gap_Buffer, col: int) {
 	end := line_end(gb, gb.start)
 	if end == text_len(gb) {
 		return // already on the last line
 	}
-	col := runes_between(gb, line_start(gb, gb.start), gb.start)
 	next_start := end + 1
 	shift_gap_to(gb, skip_runes(gb, next_start, col, line_end(gb, next_start)))
 }

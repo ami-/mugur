@@ -12,16 +12,24 @@ import "core:terminal/ansi"
 STATUS_LINE :: 1
 
 Terminal :: struct {
-	//size of screen
+	// size of screen
 	dims:          [2]int,
-	//cursor position
+	// cursor position
 	render_cursor: [2]int,
 
-	//scroll position
+	// scroll position
 	line_offset:   int,
 	col_offset:    int,
+
+	// in vertical movement, keep track of original starting point
+	want_col:      int,
+
+	// the text buffer
 	buf:           Gap_Buffer,
+	// screen buffer
 	screen_buffer: strings.Builder,
+
+	// status bar
 	status_left:   string,
 	status_right:  string,
 }
@@ -131,9 +139,9 @@ update :: proc(t: ^Terminal, ev: Event) {
 	case Key_Event:
 		switch e.key {
 		case .Up:
-			cursor_up(gb)
+			cursor_up(gb, t.want_col)
 		case .Down:
-			cursor_down(gb)
+			cursor_down(gb, t.want_col)
 		case .Left:
 			cursor_left(gb)
 		case .Right:
@@ -147,7 +155,12 @@ update :: proc(t: ^Terminal, ev: Event) {
 		case .Char:
 			if e.mods == {} {
 				insert(gb, gb.start, e.r)
-			}}
+			}
+		}
+		//update want_col with new position
+		if e.key != .Up && e.key != .Down {
+			_, t.want_col = cursor_line_col(gb)
+		}
 	}
 }
 
