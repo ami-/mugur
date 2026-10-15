@@ -176,18 +176,9 @@ view :: proc(t: ^Terminal) {
 		}
 		move_to(b, i - t.line_offset + 1, 1)
 
-		rc := 0
-		lstart, lend := len(line), len(line)
-		for _, idx in line {
-			if rc == t.col_offset {
-				lstart = idx
-			}
-			if rc == t.col_offset + cols {
-				lend = idx
-			}
-			rc += 1
-		}
-		fmt.sbprint(b, line[lstart:lend]) // draw the line text
+		visible := visible_part(line, t.col_offset, cols)
+		// draw the visible line text
+		fmt.sbprint(b, visible)
 
 		fmt.sbprint(b, ansi.CSI + ansi.EL) //delete rest of line
 	}
@@ -251,6 +242,21 @@ screen_pos :: proc(t: ^Terminal, row, col: int) -> (screen_row, screen_col: int)
 	return row - t.line_offset + 1, col - t.col_offset + 1
 }
 
+visible_part :: proc(line: string, offset, width: int) -> string {
+	n := 0
+	lstart, lend := len(line), len(line)
+	for _, idx in line {
+		if n == offset {
+			lstart = idx
+		}
+		if n == offset + width {
+			lend = idx
+			break
+		}
+		n += 1
+	}
+	return line[lstart:lend]
+}
 
 FILE :: `1. Line one
 2. Line two

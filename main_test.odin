@@ -73,11 +73,65 @@ test_scroll_keeps_cursor_on_screen :: proc(t: ^testing.T) {
 		dims = {24, 80},
 	}
 
-	moves := [][2]int{{0, 100}, {1, 10}, {1, 58}, {50, 0}, {0, 0}, {40, 300}, {41, 2}, {23, 79}, {24, 80}}
+	moves := [][2]int {
+		{0, 100},
+		{1, 10},
+		{1, 58},
+		{50, 0},
+		{0, 0},
+		{40, 300},
+		{41, 2},
+		{23, 79},
+		{24, 80},
+	}
 	for m in moves {
 		scroll(&term, m[0], m[1])
 		r, c := screen_pos(&term, m[0], m[1])
-		testing.expectf(t, 1 <= r && r <= term.dims.x, "row %d off screen after moving to %v", r, m)
-		testing.expectf(t, 1 <= c && c <= term.dims.y, "col %d off screen after moving to %v", c, m)
+		testing.expectf(
+			t,
+			1 <= r && r <= term.dims.x,
+			"row %d off screen after moving to %v",
+			r,
+			m,
+		)
+		testing.expectf(
+			t,
+			1 <= c && c <= term.dims.y,
+			"col %d off screen after moving to %v",
+			c,
+			m,
+		)
+	}
+}
+
+@(test)
+test_visible_part :: proc(t: ^testing.T) {
+	Case :: struct {
+		line:          string,
+		offset, width: int,
+		want:          string,
+	}
+	cases := []Case {
+		{"hello world", 0, 5, "hello"},
+		{"", 0, 5, ""},
+		// offset at the end
+		{"abc", 3, 5, ""},
+		{"世界abc", 0, 1, "世"},
+		// short line
+		{"hello world", 15, 5, ""},
+		{"こんにちは世界", 5, 2, "世界"},
+	}
+	for c in cases {
+		got := visible_part(c.line, c.offset, c.width)
+		testing.expectf(
+			t,
+			got == c.want,
+			"visible_part(%q, %d, %d) = %q, want %q",
+			c.line,
+			c.offset,
+			c.width,
+			got,
+			c.want,
+		)
 	}
 }
