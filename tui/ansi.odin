@@ -1,4 +1,4 @@
-package main
+package tui
 
 import "core:fmt"
 import "core:strings"

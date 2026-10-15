@@ -1,5 +1,5 @@
 #+build linux
-package main
+package tui
 
 import "core:sync"
 import "core:sys/linux"

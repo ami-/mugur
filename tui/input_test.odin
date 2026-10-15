@@ -1,6 +1,6 @@
-package main
+package tui
+import "../editor"
 import "core:testing"
-import "editor"
 
 Event :: editor.Event
 Key_Event :: editor.Key_Event

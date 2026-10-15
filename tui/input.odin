@@ -1,6 +1,6 @@
-package main
+package tui
+import "../editor"
 import "core:unicode/utf8"
-import "editor"
 
 ESC :: 0x1b
 

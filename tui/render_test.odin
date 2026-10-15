@@ -1,6 +1,6 @@
-package main
+package tui
 import "core:testing"
-import "editor"
+import "../editor"
 
 @(test)
 test_screen_pos :: proc(t: ^testing.T) {

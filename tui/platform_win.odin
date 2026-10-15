@@ -1,5 +1,5 @@
 #+build windows
-package main
+package tui
 
 import win32 "core:sys/windows"
 
