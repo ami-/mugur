@@ -1,5 +1,9 @@
 package main
 import "core:testing"
+import "editor"
+
+Event :: editor.Event
+Key_Event :: editor.Key_Event
 
 @(test)
 test_decode_ascii :: proc(t: ^testing.T) {
@@ -12,7 +16,7 @@ test_decode_ascii :: proc(t: ^testing.T) {
 test_decode_arrows :: proc(t: ^testing.T) {
 	Case :: struct {
 		input: string,
-		key:   Key,
+		key:   editor.Key,
 	}
 	cases := []Case{{"\x1b[A", .Up}, {"\x1b[B", .Down}, {"\x1b[C", .Right}, {"\x1b[D", .Left}}
 
@@ -41,7 +45,7 @@ test_decode_leaves_rest :: proc(t: ^testing.T) {
 
 @(test)
 test_decode_all :: proc(t: ^testing.T) {
-	events: [dynamic]Event
+	events: [dynamic]editor.Event
 	defer delete(events)
 
 	input := "a\x1b[Cb\x1b["
@@ -59,7 +63,7 @@ test_decode_all :: proc(t: ^testing.T) {
 
 @(test)
 test_decode_all_skips_unknown :: proc(t: ^testing.T) {
-	events: [dynamic]Event
+	events: [dynamic]editor.Event
 	defer delete(events)
 
 	used := decode_all(transmute([]u8)string("\xffa"), &events)
@@ -103,7 +107,7 @@ test_decode_utf8_incomplete_and_invalid :: proc(t: ^testing.T) {
 	_, size := decode_one([]u8{0xc3}) // first byte of "é"
 	testing.expect_value(t, size, 0)
 
-	ev: Event
+	ev: editor.Event
 	ev, size = decode_one([]u8{0xff}) // never valid in UTF-8
 	testing.expect_value(t, size, 1)
 	testing.expect_value(t, ev, nil)
@@ -111,7 +115,7 @@ test_decode_utf8_incomplete_and_invalid :: proc(t: ^testing.T) {
 
 @(test)
 test_decode_timeout :: proc(t: ^testing.T) {
-	events: [dynamic]Event
+	events: [dynamic]editor.Event
 	defer delete(events)
 
 	decode_timeout([]u8{ESC}, &events)

@@ -1,4 +1,6 @@
-package main
+package editor
+
+
 import "core:io"
 import "core:mem"
 import "core:strings"
@@ -27,6 +29,7 @@ destroy_gap_buffer :: proc(gb: ^Gap_Buffer) {
 }
 
 //resize buffer
+@(private)
 check_gap_size :: proc(gb: ^Gap_Buffer, required: int) {
 	gap_len := gb.end - gb.start
 	if gap_len < required {
@@ -41,7 +44,7 @@ check_gap_size :: proc(gb: ^Gap_Buffer, required: int) {
 	}
 }
 
-
+@(private)
 shift_gap_to :: proc(gb: ^Gap_Buffer, pos: Pos) {
 	gap_len := gb.end - gb.start
 	cursor := min(pos, len(gb.buf) - gap_len)
@@ -130,7 +133,7 @@ load_slice :: proc(gb: ^Gap_Buffer, bytes: []byte) {
 	copy(gb.buf[gb.end:], bytes)
 }
 
-@(private = "package")
+@(private)
 as_string_parts :: proc(gb: ^Gap_Buffer) -> (left: string, right: string) {
 	left = string(gb.buf[:gb.start])
 	right = string(gb.buf[gb.end:])
@@ -184,11 +187,13 @@ cursor_right :: proc(gb: ^Gap_Buffer) {
 }
 
 // UTF-8 continuation bytes look like 10xxxxxx
+@(private)
 is_continuation :: proc(b: u8) -> bool {
 	return b & 0xC0 == 0x80
 }
 
 // number of runes in text positions [from, to)
+@(private)
 runes_between :: proc(gb: ^Gap_Buffer, from, to: Pos) -> int {
 	n := 0
 	for i in from ..< to {
@@ -200,6 +205,7 @@ runes_between :: proc(gb: ^Gap_Buffer, from, to: Pos) -> int {
 }
 
 // position n runes after `from`, never past `limit`
+@(private)
 skip_runes :: proc(gb: ^Gap_Buffer, from: Pos, n: int, limit: Pos) -> Pos {
 	p := from
 	for _ in 0 ..< n {

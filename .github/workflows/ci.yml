@@ -21,3 +21,6 @@ jobs:
 
       - name: Test
         run: odin test . -vet -strict-style
+
+      - name: Test editor
+        run: odin test editor -vet -strict-style

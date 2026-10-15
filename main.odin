@@ -7,9 +7,12 @@ import "core:os"
 import "core:strings"
 import "core:sync"
 import "core:terminal/ansi"
+import "editor"
 
 
 STATUS_LINE :: 1
+
+QUIT_HINT :: "Press CTRL+'q' to exit"
 
 Terminal :: struct {
 	// size of screen
@@ -65,16 +68,16 @@ main :: proc() {
 	t := make_terminal()
 	defer destroy_terminal(&t)
 
-	ed := make_editor()
-	defer destroy_editor(&ed)
+	ed := editor.make_editor()
+	defer editor.destroy_editor(&ed)
 
-	load_text(&ed.buf, FILE)
+	editor.load_text(&ed.buf, FILE)
 
 	view(&t, &ed)
 
 	buf: [64]byte
 	pending := 0 //bytes at start of buf left over from prev read
-	events: [dynamic]Event
+	events: [dynamic]editor.Event
 	defer delete(events)
 
 	main_loop: for {
@@ -101,11 +104,11 @@ main :: proc() {
 		was_resumed := sync.atomic_exchange(&resumed, false)
 
 		for ev in events {
-			if ev == Event(Key_Event{key = .Char, r = 'q', mods = {.Ctrl}}) {
+			if ev == editor.Event(editor.Key_Event{key = .Char, r = 'q', mods = {.Ctrl}}) {
 				break main_loop
 			}
 
-			update(&ed, ev)
+			editor.update(&ed, ev)
 		}
 
 		if len(events) > 0 || resized || was_resumed {
@@ -116,53 +119,20 @@ main :: proc() {
 	//revert alternate buffer screen
 	fmt.print(ansi.CSI + ansi.DECASB_EXIT)
 
-	_ = write_to(&ed.buf, os.to_writer(os.stdout))
-}
-update :: proc(ed: ^Editor, ev: Event) {
-	gb := &ed.buf
-	switch e in ev {
-	case Key_Event:
-		switch e.key {
-		case .Up:
-			cursor_up(gb, ed.want_col)
-		case .Down:
-			cursor_down(gb, ed.want_col)
-		case .Left:
-			cursor_left(gb)
-		case .Right:
-			cursor_right(gb)
-		case .Enter:
-			insert(gb, gb.start, u8('\n'))
-		case .Backspace:
-			backspace(gb)
-		case .Escape:
-			ed.status = "Escape pressed"
-		case .Char:
-			if e.mods == {} {
-				insert(gb, gb.start, e.r)
-			}
-		}
-		//update want_col with new position
-		if e.key != .Up && e.key != .Down && e.key != .Escape {
-			_, ed.want_col = cursor_line_col(gb)
-		}
-		if e.key != .Escape {
-			ed.status = EDITOR_QUIT_MSG
-		}
-	}
+	_ = editor.write_to(&ed.buf, os.to_writer(os.stdout))
 }
 
-view :: proc(t: ^Terminal, ed: ^Editor) {
+view :: proc(t: ^Terminal, ed: ^editor.Editor) {
 	b := &t.screen_buffer
 	strings.builder_reset(b)
 
-	text := as_text(&ed.buf)
+	text := editor.as_text(&ed.buf)
 	defer free_all(context.temp_allocator)
 
 	// cursor location
-	row, col := cursor_line_col(&ed.buf)
+	row, col := editor.cursor_line_col(&ed.buf)
 
-	scroll(ed, t.dims.x, t.dims.y, row, col)
+	editor.scroll(ed, t.dims.x, t.dims.y, row, col)
 
 	rows := t.dims.x
 	cols := t.dims.y
@@ -178,7 +148,7 @@ view :: proc(t: ^Terminal, ed: ^Editor) {
 		}
 		move_to(b, i - ed.line_offset + 1, 1)
 
-		visible := visible_part(line, ed.col_offset, cols)
+		visible := editor.visible_part(line, ed.col_offset, cols)
 		// draw the visible line text
 		fmt.sbprint(b, visible)
 
@@ -204,18 +174,24 @@ view :: proc(t: ^Terminal, ed: ^Editor) {
 }
 
 
-draw_status :: proc(t: ^Terminal, ed: ^Editor, cursor_row, cursor_col: int) {
+draw_status :: proc(t: ^Terminal, ed: ^editor.Editor, cursor_row, cursor_col: int) {
 	b := &t.screen_buffer // only appends, no reset
 	row := t.dims.x + 1
 	cols := t.dims.y
 
+	msg := ed.status if ed.status != "" else QUIT_HINT
+
 	right_buf: [32]u8
 	right := fmt.bprintf(right_buf[:], "[%d,%d]", cursor_row + 1, cursor_col + 1)
-	gap := max(cols - strings.rune_count(ed.status) - strings.rune_count(right), 0)
+
+	left := editor.visible_part(msg, 0, max(0, cols - strings.rune_count(right)))
+
+	gap := max(cols - strings.rune_count(left) - strings.rune_count(right), 0)
 
 	move_to(b, row, 1)
+
 	invert_colors(b)
-	strings.write_string(b, ed.status)
+	strings.write_string(b, left)
 	for _ in 0 ..< gap {
 		strings.write_byte(b, ' ')
 	}
@@ -223,42 +199,13 @@ draw_status :: proc(t: ^Terminal, ed: ^Editor, cursor_row, cursor_col: int) {
 	reset_style(b)
 }
 
-scroll :: proc(ed: ^Editor, rows, cols, cursor_row, cursor_col: int) {
-	if cursor_row < ed.line_offset {
-		ed.line_offset = cursor_row
-	}
-	if cursor_row >= ed.line_offset + rows {
-		ed.line_offset = cursor_row - rows + 1
-	}
-	if cursor_col < ed.col_offset {
-		ed.col_offset = max(0, cursor_col - cols / 2)
-	}
-	if cursor_col >= ed.col_offset + cols {
-		ed.col_offset = cursor_col - cols + 1
-	}
-}
 
 // text position (0-based line and rune column) to terminal position (1-based),
 // taking the scroll offsets into account
-screen_pos :: proc(ed: ^Editor, row, col: int) -> (screen_row, screen_col: int) {
+screen_pos :: proc(ed: ^editor.Editor, row, col: int) -> (screen_row, screen_col: int) {
 	return row - ed.line_offset + 1, col - ed.col_offset + 1
 }
 
-visible_part :: proc(line: string, offset, width: int) -> string {
-	n := 0
-	lstart, lend := len(line), len(line)
-	for _, idx in line {
-		if n == offset {
-			lstart = idx
-		}
-		if n == offset + width {
-			lend = idx
-			break
-		}
-		n += 1
-	}
-	return line[lstart:lend]
-}
 
 FILE :: `1. Line one
 2. Line two

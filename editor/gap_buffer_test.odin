@@ -1,4 +1,4 @@
-package main
+package editor
 import "core:fmt"
 import "core:strings"
 import "core:testing"
