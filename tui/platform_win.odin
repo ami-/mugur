@@ -4,29 +4,49 @@ package tui
 import win32 "core:sys/windows"
 
 @(private = "file")
-orig_mode: win32.DWORD
+orig_in_mode: win32.DWORD
+
+@(private = "file")
+orig_out_mode: win32.DWORD
+
+// Windows has no SIGTSTP/SIGCONT (Ctrl+Z, fg), so this is never set
+resumed: bool
 
 enable_raw_mode :: proc() {
 	stdin := win32.GetStdHandle(win32.STD_INPUT_HANDLE)
 	assert(stdin != win32.INVALID_HANDLE_VALUE)
+	stdout := win32.GetStdHandle(win32.STD_OUTPUT_HANDLE)
+	assert(stdout != win32.INVALID_HANDLE_VALUE)
 
-	// Save original console mode
-	ok := win32.GetConsoleMode(stdin, &orig_mode)
-	assert(ok)
+	// Save original console modes
+	ok := win32.GetConsoleMode(stdin, &orig_in_mode)
+	assert(bool(ok))
+	ok = win32.GetConsoleMode(stdout, &orig_out_mode)
+	assert(bool(ok))
 
-	raw := orig_mode
+	raw_in := orig_in_mode
 	// Disable line input and echo input
-	raw &= ~win32.ENABLE_ECHO_INPUT
-	raw &= ~win32.ENABLE_LINE_INPUT
+	raw_in &= ~win32.ENABLE_ECHO_INPUT
+	raw_in &= ~win32.ENABLE_LINE_INPUT
+	// Deliver keys as escape sequences (arrows as ESC [ A ...), like a unix terminal
+	raw_in |= win32.ENABLE_VIRTUAL_TERMINAL_INPUT
 
-	ok = win32.SetConsoleMode(stdin, raw)
-	assert(ok)
+	ok = win32.SetConsoleMode(stdin, raw_in)
+	assert(bool(ok))
+
+	// Interpret the ANSI escape sequences we write (cursor moves, colors, alternate screen)
+	ok = win32.SetConsoleMode(stdout, orig_out_mode | win32.ENABLE_VIRTUAL_TERMINAL_PROCESSING)
+	assert(bool(ok))
 }
 
 disable_raw_mode :: proc "c" () {
 	stdin := win32.GetStdHandle(win32.STD_INPUT_HANDLE)
 	if stdin != win32.INVALID_HANDLE_VALUE {
-		win32.SetConsoleMode(stdin, orig_mode)
+		win32.SetConsoleMode(stdin, orig_in_mode)
+	}
+	stdout := win32.GetStdHandle(win32.STD_OUTPUT_HANDLE)
+	if stdout != win32.INVALID_HANDLE_VALUE {
+		win32.SetConsoleMode(stdout, orig_out_mode)
 	}
 }
 
