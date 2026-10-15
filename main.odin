@@ -178,6 +178,7 @@ view :: proc(t: ^Terminal) {
 
 	rows := t.dims.x
 	cols := t.dims.y
+	line_count := strings.count(text, "\n") + 1
 	i := 0
 	for line in strings.split_lines_iterator(&text) {
 		defer i += 1
@@ -198,7 +199,9 @@ view :: proc(t: ^Terminal) {
 	//clear rest of screen
 	for ; i < t.line_offset + rows; i += 1 {
 		move_to(b, i - t.line_offset + 1, 1)
-		fmt.sbprint(b, "~")
+		if i >= line_count {
+			fmt.sbprint(b, "~")
+		}
 		fmt.sbprint(b, ansi.CSI + ansi.EL) //delete rest of line
 	}
 
