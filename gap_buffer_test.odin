@@ -21,7 +21,6 @@ expect_parts :: proc(
 	testing.expect_value(t, r, want_r, loc)
 }
 
-@(private = "file")
 expect_cursor :: proc(
 	t: ^testing.T,
 	gb: ^Gap_Buffer,

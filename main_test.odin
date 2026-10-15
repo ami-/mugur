@@ -2,66 +2,66 @@ package main
 import "core:testing"
 
 @(private = "file")
+press :: proc(ed: ^Editor, key: Key, times := 1) {
+	for _ in 0 ..< times {
+		update(ed, Key_Event{key = key})
+	}
+}
+@(private = "file")
 expect_offsets :: proc(
 	t: ^testing.T,
-	term: ^Terminal,
+	ed: ^Editor,
 	want_line, want_col: int,
 	loc := #caller_location,
 ) {
-	testing.expect_value(t, term.line_offset, want_line, loc)
-	testing.expect_value(t, term.col_offset, want_col, loc)
+	testing.expect_value(t, ed.line_offset, want_line, loc)
+	testing.expect_value(t, ed.col_offset, want_col, loc)
 }
 
 @(test)
 test_scroll_vertical :: proc(t: ^testing.T) {
-	term := Terminal {
-		dims = {24, 80},
-	}
+	ed := Editor{}
 
-	scroll(&term, 10, 0) // visible: nothing changes
-	expect_offsets(t, &term, 0, 0)
+	scroll(&ed, 24, 80, 10, 0) // visible: nothing changes
+	expect_offsets(t, &ed, 0, 0)
 
-	scroll(&term, 30, 0) // below the screen: cursor on the last row
-	expect_offsets(t, &term, 7, 0)
+	scroll(&ed, 24, 80, 30, 0) // below the screen: cursor on the last row
+	expect_offsets(t, &ed, 7, 0)
 
-	scroll(&term, 20, 0) // still visible
-	expect_offsets(t, &term, 7, 0)
+	scroll(&ed, 24, 80, 20, 0) // still visible
+	expect_offsets(t, &ed, 7, 0)
 
-	scroll(&term, 3, 0) // above the screen: cursor on the first row
-	expect_offsets(t, &term, 3, 0)
+	scroll(&ed, 24, 80, 3, 0) // above the screen: cursor on the first row
+	expect_offsets(t, &ed, 3, 0)
 }
 
 @(test)
 test_scroll_horizontal :: proc(t: ^testing.T) {
-	term := Terminal {
-		dims = {24, 80},
-	}
+	ed := Editor{}
 
-	scroll(&term, 0, 100) // end of a long line: cursor on the last column
-	expect_offsets(t, &term, 0, 21)
+	scroll(&ed, 24, 80, 0, 100) // end of a long line: cursor on the last column
+	expect_offsets(t, &ed, 0, 21)
 
-	scroll(&term, 1, 10) // down onto a short line: back to the start
-	expect_offsets(t, &term, 0, 0)
+	scroll(&ed, 24, 80, 1, 10) // down onto a short line: back to the start
+	expect_offsets(t, &ed, 0, 0)
 
-	scroll(&term, 0, 200) // far right
-	expect_offsets(t, &term, 0, 121)
+	scroll(&ed, 24, 80, 0, 200) // far right
+	expect_offsets(t, &ed, 0, 121)
 
-	scroll(&term, 1, 100) // left of the screen: cursor centered
-	expect_offsets(t, &term, 0, 60)
+	scroll(&ed, 24, 80, 1, 100) // left of the screen: cursor centered
+	expect_offsets(t, &ed, 0, 60)
 }
 
 @(test)
 test_screen_pos :: proc(t: ^testing.T) {
-	term := Terminal {
-		dims = {24, 80},
-	}
+	ed := Editor{}
 
-	r, c := screen_pos(&term, 0, 0) // terminal starts at 1,1
+	r, c := screen_pos(&ed, 0, 0) // terminal starts at 1,1
 	testing.expect_value(t, r, 1)
 	testing.expect_value(t, c, 1)
 
-	term.line_offset, term.col_offset = 10, 28
-	r, c = screen_pos(&term, 12, 58)
+	ed.line_offset, ed.col_offset = 10, 28
+	r, c = screen_pos(&ed, 12, 58)
 	testing.expect_value(t, r, 3)
 	testing.expect_value(t, c, 31)
 }
@@ -69,9 +69,7 @@ test_screen_pos :: proc(t: ^testing.T) {
 // after scroll, the cursor must always land inside the text area
 @(test)
 test_scroll_keeps_cursor_on_screen :: proc(t: ^testing.T) {
-	term := Terminal {
-		dims = {24, 80},
-	}
+	ed := Editor{}
 
 	moves := [][2]int {
 		{0, 100},
@@ -85,22 +83,10 @@ test_scroll_keeps_cursor_on_screen :: proc(t: ^testing.T) {
 		{24, 80},
 	}
 	for m in moves {
-		scroll(&term, m[0], m[1])
-		r, c := screen_pos(&term, m[0], m[1])
-		testing.expectf(
-			t,
-			1 <= r && r <= term.dims.x,
-			"row %d off screen after moving to %v",
-			r,
-			m,
-		)
-		testing.expectf(
-			t,
-			1 <= c && c <= term.dims.y,
-			"col %d off screen after moving to %v",
-			c,
-			m,
-		)
+		scroll(&ed, 24, 80, m[0], m[1])
+		r, c := screen_pos(&ed, m[0], m[1])
+		testing.expectf(t, 1 <= r && r <= 24, "row %d off screen after moving to %v", r, m)
+		testing.expectf(t, 1 <= c && c <= 80, "col %d off screen after moving to %v", c, m)
 	}
 }
 
@@ -134,4 +120,32 @@ test_visible_part :: proc(t: ^testing.T) {
 			c.want,
 		)
 	}
+}
+
+@(test)
+test_update_remembers_column :: proc(t: ^testing.T) {
+	TEXT :: "a long line of text\nab\nanother long line"
+	ed := make_editor()
+	defer destroy_editor(&ed)
+	load_text(&ed.buf, TEXT)
+
+	press(&ed, .Right, 10)
+	expect_cursor(t, &ed.buf, 0, 10)
+
+	press(&ed, .Down)
+	expect_cursor(t, &ed.buf, 1, 2)
+
+	press(&ed, .Escape)
+
+	press(&ed, .Down)
+	expect_cursor(t, &ed.buf, 2, 10)
+
+	press(&ed, .Up, 2)
+	expect_cursor(t, &ed.buf, 0, 10)
+
+	press(&ed, .Left)
+	expect_cursor(t, &ed.buf, 0, 9)
+
+	press(&ed, .Down, 2)
+	expect_cursor(t, &ed.buf, 2, 9)
 }

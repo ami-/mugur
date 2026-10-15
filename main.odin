@@ -14,46 +14,26 @@ STATUS_LINE :: 1
 Terminal :: struct {
 	// size of screen
 	dims:          [2]int,
-	// cursor position
-	render_cursor: [2]int,
 
-	// scroll position
-	line_offset:   int,
-	col_offset:    int,
-
-	// in vertical movement, keep track of original starting point
-	want_col:      int,
-
-	// the text buffer
-	buf:           Gap_Buffer,
 	// screen buffer
 	screen_buffer: strings.Builder,
-
-	// status bar
-	status_left:   string,
-	status_right:  string,
 }
 
-make_terminal :: proc(n_bytes: int = 4) -> Terminal {
+make_terminal :: proc() -> Terminal {
 	t := Terminal{}
 	r, c, ok := get_terminal_size()
 	if !ok {
 		panic("could not get terminal size")
 	}
 	t.dims = {r, c}
-	t.buf = make_gap_buffer(c)
 	t.screen_buffer = strings.builder_make_len_cap(0, t.dims.x * t.dims.y)
-	t.status_left = "Press CTRL+'q' to exit."
-	t.status_right = "#"
 
 	//reserve status
 	t.dims.x -= STATUS_LINE
 
-	t.render_cursor = {1, 1}
 	return t
 }
 destroy_terminal :: proc(t: ^Terminal) {
-	destroy_gap_buffer(&t.buf)
 	strings.builder_destroy(&t.screen_buffer)
 }
 
@@ -83,9 +63,14 @@ main :: proc() {
 	fmt.print(ansi.CSI + ansi.DECASB_ENTER)
 
 	t := make_terminal()
-	load_text(&t.buf, FILE)
+	defer destroy_terminal(&t)
 
-	view(&t)
+	ed := make_editor()
+	defer destroy_editor(&ed)
+
+	load_text(&ed.buf, FILE)
+
+	view(&t, &ed)
 
 	buf: [64]byte
 	pending := 0 //bytes at start of buf left over from prev read
@@ -120,28 +105,28 @@ main :: proc() {
 				break main_loop
 			}
 
-			update(&t, ev)
+			update(&ed, ev)
 		}
 
 		if len(events) > 0 || resized || was_resumed {
-			view(&t)
+			view(&t, &ed)
 		}
 	}
 
 	//revert alternate buffer screen
 	fmt.print(ansi.CSI + ansi.DECASB_EXIT)
 
-	_ = write_to(&t.buf, os.to_writer(os.stdout))
+	_ = write_to(&ed.buf, os.to_writer(os.stdout))
 }
-update :: proc(t: ^Terminal, ev: Event) {
-	gb := &t.buf
+update :: proc(ed: ^Editor, ev: Event) {
+	gb := &ed.buf
 	switch e in ev {
 	case Key_Event:
 		switch e.key {
 		case .Up:
-			cursor_up(gb, t.want_col)
+			cursor_up(gb, ed.want_col)
 		case .Down:
-			cursor_down(gb, t.want_col)
+			cursor_down(gb, ed.want_col)
 		case .Left:
 			cursor_left(gb)
 		case .Right:
@@ -151,30 +136,33 @@ update :: proc(t: ^Terminal, ev: Event) {
 		case .Backspace:
 			backspace(gb)
 		case .Escape:
-			t.status_left = "Escape pressed"
+			ed.status = "Escape pressed"
 		case .Char:
 			if e.mods == {} {
 				insert(gb, gb.start, e.r)
 			}
 		}
 		//update want_col with new position
-		if e.key != .Up && e.key != .Down {
-			_, t.want_col = cursor_line_col(gb)
+		if e.key != .Up && e.key != .Down && e.key != .Escape {
+			_, ed.want_col = cursor_line_col(gb)
+		}
+		if e.key != .Escape {
+			ed.status = EDITOR_QUIT_MSG
 		}
 	}
 }
 
-view :: proc(t: ^Terminal) {
+view :: proc(t: ^Terminal, ed: ^Editor) {
 	b := &t.screen_buffer
 	strings.builder_reset(b)
 
-	text := as_text(&t.buf)
+	text := as_text(&ed.buf)
 	defer free_all(context.temp_allocator)
 
 	// cursor location
-	row, col := cursor_line_col(&t.buf)
+	row, col := cursor_line_col(&ed.buf)
 
-	scroll(t, row, col)
+	scroll(ed, t.dims.x, t.dims.y, row, col)
 
 	rows := t.dims.x
 	cols := t.dims.y
@@ -182,23 +170,23 @@ view :: proc(t: ^Terminal) {
 	i := 0
 	for line in strings.split_lines_iterator(&text) {
 		defer i += 1
-		if i < t.line_offset {
+		if i < ed.line_offset {
 			continue
 		}
-		if i >= t.line_offset + rows {
+		if i >= ed.line_offset + rows {
 			break
 		}
-		move_to(b, i - t.line_offset + 1, 1)
+		move_to(b, i - ed.line_offset + 1, 1)
 
-		visible := visible_part(line, t.col_offset, cols)
+		visible := visible_part(line, ed.col_offset, cols)
 		// draw the visible line text
 		fmt.sbprint(b, visible)
 
 		fmt.sbprint(b, ansi.CSI + ansi.EL) //delete rest of line
 	}
 	//clear rest of screen
-	for ; i < t.line_offset + rows; i += 1 {
-		move_to(b, i - t.line_offset + 1, 1)
+	for ; i < ed.line_offset + rows; i += 1 {
+		move_to(b, i - ed.line_offset + 1, 1)
 		if i >= line_count {
 			fmt.sbprint(b, "~")
 		}
@@ -206,28 +194,28 @@ view :: proc(t: ^Terminal) {
 	}
 
 
-	draw_status(t, row, col)
+	draw_status(t, ed, row, col)
 
 	//show cursor in new location
-	screen_row, screen_col := screen_pos(t, row, col)
+	screen_row, screen_col := screen_pos(ed, row, col)
 	move_to(b, screen_row, screen_col)
 
 	fmt.print(strings.to_string(b^))
 }
 
 
-draw_status :: proc(t: ^Terminal, cursor_row, cursor_col: int) {
+draw_status :: proc(t: ^Terminal, ed: ^Editor, cursor_row, cursor_col: int) {
 	b := &t.screen_buffer // only appends, no reset
 	row := t.dims.x + 1
 	cols := t.dims.y
 
 	right_buf: [32]u8
 	right := fmt.bprintf(right_buf[:], "[%d,%d]", cursor_row + 1, cursor_col + 1)
-	gap := max(cols - strings.rune_count(t.status_left) - strings.rune_count(right), 0)
+	gap := max(cols - strings.rune_count(ed.status) - strings.rune_count(right), 0)
 
 	move_to(b, row, 1)
 	invert_colors(b)
-	strings.write_string(b, t.status_left)
+	strings.write_string(b, ed.status)
 	for _ in 0 ..< gap {
 		strings.write_byte(b, ' ')
 	}
@@ -235,27 +223,25 @@ draw_status :: proc(t: ^Terminal, cursor_row, cursor_col: int) {
 	reset_style(b)
 }
 
-scroll :: proc(t: ^Terminal, cursor_row, cursor_col: int) {
-	rows := t.dims.x
-	cols := t.dims.y
-	if cursor_row < t.line_offset {
-		t.line_offset = cursor_row
+scroll :: proc(ed: ^Editor, rows, cols, cursor_row, cursor_col: int) {
+	if cursor_row < ed.line_offset {
+		ed.line_offset = cursor_row
 	}
-	if cursor_row >= t.line_offset + rows {
-		t.line_offset = cursor_row - rows + 1
+	if cursor_row >= ed.line_offset + rows {
+		ed.line_offset = cursor_row - rows + 1
 	}
-	if cursor_col < t.col_offset {
-		t.col_offset = max(0, cursor_col - cols / 2)
+	if cursor_col < ed.col_offset {
+		ed.col_offset = max(0, cursor_col - cols / 2)
 	}
-	if cursor_col >= t.col_offset + cols {
-		t.col_offset = cursor_col - cols + 1
+	if cursor_col >= ed.col_offset + cols {
+		ed.col_offset = cursor_col - cols + 1
 	}
 }
 
 // text position (0-based line and rune column) to terminal position (1-based),
 // taking the scroll offsets into account
-screen_pos :: proc(t: ^Terminal, row, col: int) -> (screen_row, screen_col: int) {
-	return row - t.line_offset + 1, col - t.col_offset + 1
+screen_pos :: proc(ed: ^Editor, row, col: int) -> (screen_row, screen_col: int) {
+	return row - ed.line_offset + 1, col - ed.col_offset + 1
 }
 
 visible_part :: proc(line: string, offset, width: int) -> string {
